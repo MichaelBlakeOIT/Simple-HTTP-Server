@@ -5,9 +5,18 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 
 #define HTTP 8000
 #define CRLF "\r\n"
+#define BAD_REQUEST "400 Bad Request"
+#define NOT_FOUND "404 Not Found"
+#define METHOD_NOT_ALLOWED "405 Method Not Allowed"
+#define OK "200 OK"
+#define HTTP_VERSION "HTTP/1.1 "
+#define CONTENT_TYPE "Content-Type: text/html"
+#define CONTENT_LENGTH "Content-Length: "
 #define MAX_REQUEST_SIZE 2048
 
 typedef struct request 
@@ -36,14 +45,10 @@ void readLine(char * string, char * buffer)
 
 int main(int argc, char ** argv)
 {
-	int bytes_written = 0;
 	int fd = 0;
-	int read_size = 0;
-	char client_message[MAX_REQUEST_SIZE] = { 0 };
 	char request_buffer[MAX_REQUEST_SIZE] = { 0 };
 	char file[1024] = { 0 };
-	char * reply = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 19\r\n\r\n";
-	
+
 	{
 
 		fd = establishConnection();
@@ -51,11 +56,6 @@ int main(int argc, char ** argv)
 		readRequest(fd, request_buffer, file);
 
 		sendFile(fd, file);
-
-		/*if((bytes_written = write(fd, reply, strlen(reply))) < 0)
-		{
-			perror("Write()");
-		}*/
 
 		close(fd);
 
@@ -68,9 +68,7 @@ int main(int argc, char ** argv)
 int establishConnection()
 {
 	int fd;
-	int client_sockl;
 	int c;
-	int read_size;
     struct sockaddr_in server;
 	struct sockaddr_in client;
 
@@ -100,7 +98,6 @@ int establishConnection()
 void readRequest(int fd, char * request, char * path)
 {
 	int read_size = 0;
-	//char path[222] = { 0 };	
 	char line[500] = { 0 };
 	char file[100] = { 0 };
 
@@ -122,32 +119,36 @@ void readRequest(int fd, char * request, char * path)
 
 void sendFile(int fd, char * file)
 {
+	struct stat st;
 	int bytes_read = 0;
 	char file_buffer[1024] = { 0 };
 	file = "/home/michael/index.txt";
-	char * reply = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 14\r\n\r\n";
-	//FILE * fp = 0;
 	int file_fd = 0;
+	char file_size[10] = { 0 };
 
-	/*if((fp = fopen(file, "r")) == NULL)
-	{
-		perror("fopen()");
-	}*/
 	if((file_fd = open(file, O_RDONLY)) < 0)
 	{
 		perror("open()");
 	}
 	
+	stat(file, &st);
+	//itoa(st.st_size, file_size, 10);
+	sprintf(file_size, "%ld", st.st_size);
 	memset(file_buffer, 0, 1024);
 
-	send(fd, reply, strlen(reply), 0);
+	send(fd, HTTP_VERSION, strlen(HTTP_VERSION), 0);
+	send(fd, OK, strlen(OK), 0);
+	send(fd, CRLF, strlen(CRLF), 0);
+	send(fd, CONTENT_TYPE, strlen(CONTENT_TYPE), 0);
+	send(fd, CRLF, strlen(CRLF), 0);
+	send(fd, CONTENT_LENGTH, strlen(CONTENT_LENGTH), 0);
+	send(fd, file_size, strlen(file_size), 0);
+	send(fd, CRLF, strlen(CRLF), 0);
+	send(fd, CRLF, strlen(CRLF), 0);
 
-	//while((bytes_read = 
-	//		fread(file_buffer, sizeof(char), 1024, fp)) < 0)
 	do
 	{
 		bytes_read = read(file_fd, file_buffer, sizeof(file_buffer));
-		printf("sending %s\n", file_buffer);
 		if(send(fd, file_buffer, bytes_read, 0) < 0)
 		{
 			perror("Send()");

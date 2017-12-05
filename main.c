@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <getopt.h>
+#include <pthread.h>
 
 #define CRLF "\r\n"
 #define BAD_REQUEST "400 Bad Request"
@@ -28,60 +29,68 @@ typedef struct request
 	char path[500];
 } request_t;
 
+typedef struct request_info 
+{
+	int browser_fd;
+	char file[1024];
+	char root[MAX_ROOT];
+} request_info_t;
+
 int establishConnection();
-void readRequest(int fd, char * request, char * path);
+void readRequest(int fd, char * path);
 int sendFile(int fd, char * file);
 void readLine(char * string, char * buffer);
-void handleOpts(int argc, char ** argv, char * root);
+int handleOpts(int argc, char ** argv, char * root);
 void printHelp();
 void send404(int fd, char * root);
+void * handleRequest(void * request_info);
 
 int main(int argc, char ** argv)
 {
 	int fd = 0;
-	int browser_fd = 0;
 	int c;
-	int send_return = 0;
-	char request_buffer[MAX_REQUEST_SIZE] = { 0 };
-	char file[1024] = { 0 };
-	char root[MAX_ROOT] = { 0 };
+	char root[1024] = { 0 }; 
 	struct sockaddr_in client;
+	request_info_t * request_info = 0;
+	pthread_t browser_thread;
 
-	handleOpts(argc, argv, root);
+	if(handleOpts(argc, argv, root) != 0)
+	{
+		return 0;
+	}
 
 	printf("Starting server\nRoot Dir: %s\nPort: %d\n", 
 			root, int_port);
-
-	strcpy(file, root);
 
 	fd = establishConnection();
 	c = sizeof(struct sockaddr_in);
 
 	while(1)
 	{
-		memset(request_buffer, 0, sizeof(request_buffer));
+		request_info = malloc(sizeof(request_info_t));		
+		strcpy(request_info->file, root);
+		strcpy(request_info->root, root);
 
-		if((browser_fd = accept(fd, (struct sockaddr *)&client, 
-						   (socklen_t*)&c)) < 0)
+		printf("File: %s\n", request_info->file);
+
+		if((request_info->browser_fd = 
+				accept(fd, (struct sockaddr *)&client, 
+				(socklen_t*)&c)) < 0)
 		{
 			perror("Accept()");
 			close(fd);
-			exit(1);
+			continue;
 		}
 
-		readRequest(browser_fd, request_buffer, file + strlen(root));
-
-		printf("file: %s\n", file);
-
-		if((send_return = sendFile(browser_fd, file)) != 0)
+		if(pthread_create(&browser_thread, 
+						  NULL, handleRequest, request_info) != 0)
 		{
-			if(send_return == 1)
-			{
-				send404(browser_fd, root);
-			}	
+			perror("Pthread_creat()");
+			close(fd);
+			continue;
 		}
-
-		close(browser_fd);
+		
+		pthread_detach(browser_thread);
 	}
 
 	close(fd);
@@ -89,6 +98,29 @@ int main(int argc, char ** argv)
 	return 0;
 }
 
+void * handleRequest(void * request_info)
+{
+	request_info_t * request_struct = (request_info_t *)request_info;
+	int send_return = 0;
+
+    readRequest(request_struct->browser_fd, 
+				request_struct->file + strlen(request_struct->root));
+
+    printf("file: %s\n", request_struct->file);
+
+    if((send_return = sendFile(request_struct->browser_fd, 
+							   request_struct->file)) != 0)
+    {
+        if(send_return == 1)
+        {
+            send404(request_struct->browser_fd, request_struct->root);
+        }   
+    }
+	close(request_struct->browser_fd);
+	free(request_info);
+
+	return 0;
+}
 
 int establishConnection()
 {
@@ -117,11 +149,12 @@ int establishConnection()
 	return fd;   
 }
 
-void readRequest(int fd, char * request, char * path)
+void readRequest(int fd, char * path)
 {
 	int read_size = 0;
 	char line[500] = { 0 };
 	char file[100] = { 0 };
+	char request[1024] = { 0 };
 
 	if((read_size = 
 			recv(fd, request, MAX_REQUEST_SIZE, 0)) < 0)
@@ -197,13 +230,9 @@ void readLine(char * string, char * buffer)
     buffer[i + 1] = 0;
 }
 
-void handleOpts(int argc, char ** argv, char * root)
+int handleOpts(int argc, char ** argv, char * root)
 {
-	int aflag = 0;
-	int bflag = 0;
-	char *cvalue = NULL;
 	char port[MAX_PORT] = { 0 };
-	int index;
 	int c;
 
 	while ((c = getopt (argc, argv, "hp:r:")) != -1)
@@ -212,11 +241,11 @@ void handleOpts(int argc, char ** argv, char * root)
 		{
 			case 'h':
 				printHelp();
-				return 0;
+				return 1;
 				break;
 			case 'p':
 				strncpy(port, optarg, MAX_PORT - 1);
-				sprintf(port, "%hu", int_port);
+				sscanf(port, "%hu", &int_port);
 				break;
 			case 'r':
 				strncpy(root, optarg, MAX_ROOT - 1);
@@ -224,7 +253,8 @@ void handleOpts(int argc, char ** argv, char * root)
 			case '?':
 				break;
 			default:
-				exit(1);
+				printf("Invalid arguments\n");
+				return 1;
 		}
 
 		if(root[0] == 0)
@@ -233,6 +263,7 @@ void handleOpts(int argc, char ** argv, char * root)
 			exit(1);
 		}
 	}
+	return 0;
 }
 
 void printHelp()

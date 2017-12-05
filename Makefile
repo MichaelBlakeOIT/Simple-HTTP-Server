@@ -3,7 +3,7 @@
 # Author: Michael Blake
 # Date:   Dec 1, 2017
 #
-COPTS = -g -O0 -Wall -std=c99
+COPTS = -g -O0 -Wall -std=c99 -pthread
 
 OBJS =
 

@@ -9,41 +9,16 @@
 #include <sys/stat.h>
 #include <getopt.h>
 #include <pthread.h>
+#include "main.h"
 
-#define CRLF "\r\n"
-#define BAD_REQUEST "400 Bad Request"
-#define NOT_FOUND "404 Not Found"
-#define METHOD_NOT_ALLOWED "405 Method Not Allowed"
-#define OK "200 OK"
-#define HTTP_VERSION "HTTP/1.1 "
-#define CONTENT_TYPE "Content-Type: text/html"
-#define CONTENT_LENGTH "Content-Length: "
-#define MAX_REQUEST_SIZE 2048
-#define MAX_ROOT 64
-#define MAX_PORT 6
-
-unsigned short int int_port = 8000;
-
-typedef struct request 
-{
-	char path[500];
-} request_t;
-
-typedef struct request_info 
-{
-	int browser_fd;
-	char file[1024];
-	char root[MAX_ROOT];
-} request_info_t;
-
-int establishConnection();
-void readRequest(int fd, char * path);
-int sendFile(int fd, char * file);
-void readLine(char * string, char * buffer);
-int handleOpts(int argc, char ** argv, char * root);
-void printHelp();
-void send404(int fd, char * root);
-void * handleRequest(void * request_info);
+static int establishConnection();
+static void readRequest(int fd, char * path);
+static int sendFile(int fd, char * file);
+static void readLine(char * string, char * buffer);
+static int handleOpts(int argc, char ** argv, char * root);
+static void printHelp();
+static void send404(int fd, char * root);
+static void * handleRequest(void * request_info);
 
 int main(int argc, char ** argv)
 {
@@ -65,38 +40,46 @@ int main(int argc, char ** argv)
 	fd = establishConnection();
 	c = sizeof(struct sockaddr_in);
 
-	while(1)
+	while(shutdown_server == 0)
 	{
 		request_info = malloc(sizeof(request_info_t));		
 		strcpy(request_info->file, root);
 		strcpy(request_info->root, root);
-
-		printf("File: %s\n", request_info->file);
 
 		if((request_info->browser_fd = 
 				accept(fd, (struct sockaddr *)&client, 
 				(socklen_t*)&c)) < 0)
 		{
 			perror("Accept()");
+			free(request_info);
 			close(fd);
 			continue;
 		}
 
-		if(pthread_create(&browser_thread, 
+		if((shutdown_server == 1) || pthread_create(&browser_thread, 
 						  NULL, handleRequest, request_info) != 0)
 		{
-			perror("Pthread_creat()");
+			//perror("Pthread_create()");
+			free(request_info);
 			close(fd);
 			continue;
 		}
 		
-		pthread_detach(browser_thread);
+		//pthread_detach(browser_thread);
 	}
 
 	close(fd);
 
 	return 0;
 }
+
+/****************************************************************
+ * Author: Michael Blake
+ * Date 12/5/2017
+ *
+ * Function for pthreadcreate to read a request from a socket
+ * and reply with an http response
+ ***************************************************************/
 
 void * handleRequest(void * request_info)
 {
@@ -118,9 +101,19 @@ void * handleRequest(void * request_info)
     }
 	close(request_struct->browser_fd);
 	free(request_info);
+	pthread_detach(pthread_self());
 
 	return 0;
 }
+
+/****************************************************************
+ * Author: Michael Blake
+ * Date 12/5/2017
+ *
+ * Creates new socket, starts listening for connections, and
+ * returns new fd created
+ ***************************************************************/
+
 
 int establishConnection()
 {
@@ -149,12 +142,21 @@ int establishConnection()
 	return fd;   
 }
 
+/****************************************************************
+ * Author: Michael Blake
+ * Date 12/5/2017
+ *
+ * Waits for data from socket, reads any valid http request, and 
+ * writes the file path to "path"
+ ***************************************************************/
+
 void readRequest(int fd, char * path)
 {
 	int read_size = 0;
 	char line[500] = { 0 };
-	char file[100] = { 0 };
 	char request[1024] = { 0 };
+
+	printf("Read Request\n");
 
 	if((read_size = 
 			recv(fd, request, MAX_REQUEST_SIZE, 0)) < 0)
@@ -167,11 +169,30 @@ void readRequest(int fd, char * path)
 
 	sscanf(line, "GET %s HTTP", path);
 
-	if(sscanf(path, "/%s?", file) != 1)
+	if(path[strlen(path) - 1] == '/')
 	{
-		strcpy(file, "index.html");
+		strcat(path, "index.html");
 	}
+
+	//Just to test valgrind
+	if(strcmp(path, "/shutdown") == 0)
+	{
+		shutdown_server = 1;
+	}
+
+	/*if(sscanf(path, "/%s?", file) != 1)
+	{
+		strcpy(file, "/index.html");
+	}*/
 }
+
+/****************************************************************
+ * Author: Michael Blake
+ * Date 12/5/2017
+ *
+ * reads file "file" and writes http response and file to socket 
+ * "fd"
+ ***************************************************************/
 
 int sendFile(int fd, char * file)
 {
@@ -180,6 +201,8 @@ int sendFile(int fd, char * file)
 	char file_buffer[1024] = { 0 };	
 	int file_fd = 0;
 	char file_size[10] = { 0 };
+
+	printf("Send File\n");
 
 	if((file_fd = open(file, O_RDONLY)) < 0)
 	{
@@ -215,6 +238,13 @@ int sendFile(int fd, char * file)
 
 	return 0;
 }
+
+/****************************************************************
+ * Author: Michael Blake
+ * Date 12/5/2017
+ *
+ * Reads line seperated by a CRLF
+ ***************************************************************/
 
 void readLine(char * string, char * buffer)
 {
@@ -266,10 +296,29 @@ int handleOpts(int argc, char ** argv, char * root)
 	return 0;
 }
 
+/****************************************************************
+ * Author: Michael Blake
+ * Date 12/5/2017
+ *
+ * Prints help info
+ ***************************************************************/
+
 void printHelp()
 {
-	printf("help\n");
+	printf("Command Line Arguments\n
+			-h: help\n
+			-p port (default: 8000): port web server runs on\n
+			-r dir (required): root directory of website\n");
+	printf("To add a custom 404 page, name the file 404.html
+			and put it in your website's root directory");
 }
+
+/****************************************************************
+ * Author: Michael Blake
+ * Date 12/5/2017
+ *
+ * Sends 404 response with custom 404 page contents if available
+ ***************************************************************/
 
 void send404(int fd, char * root)
 {

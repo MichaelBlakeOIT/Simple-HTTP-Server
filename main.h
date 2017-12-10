@@ -13,7 +13,6 @@
 #define MAX_PORT 6
 
 unsigned short int int_port = 8000;
-unsigned short int shutdown_server = 0;
 
 typedef struct request
 {

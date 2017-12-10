@@ -40,7 +40,7 @@ int main(int argc, char ** argv)
 	fd = establishConnection();
 	c = sizeof(struct sockaddr_in);
 
-	while(shutdown_server == 0)
+	while(1)
 	{
 		request_info = malloc(sizeof(request_info_t));		
 		strcpy(request_info->file, root);
@@ -56,8 +56,7 @@ int main(int argc, char ** argv)
 			continue;
 		}
 
-		if((shutdown_server == 1) || pthread_create(&browser_thread, 
-						  NULL, handleRequest, request_info) != 0)
+		if(pthread_create(&browser_thread, NULL, handleRequest, request_info) != 0)
 		{
 			//perror("Pthread_create()");
 			free(request_info);
@@ -172,12 +171,6 @@ void readRequest(int fd, char * path)
 	if(path[strlen(path) - 1] == '/')
 	{
 		strcat(path, "index.html");
-	}
-
-	//Just to test valgrind
-	if(strcmp(path, "/shutdown") == 0)
-	{
-		shutdown_server = 1;
 	}
 
 	/*if(sscanf(path, "/%s?", file) != 1)
@@ -305,11 +298,11 @@ int handleOpts(int argc, char ** argv, char * root)
 
 void printHelp()
 {
-	printf("Command Line Arguments\n
-			-h: help\n
-			-p port (default: 8000): port web server runs on\n
+	printf("Command Line Arguments\n \
+			-h: help\n \
+			-p port (default: 8000): port web server runs on\n \
 			-r dir (required): root directory of website\n");
-	printf("To add a custom 404 page, name the file 404.html
+	printf("To add a custom 404 page, name the file 404.html \
 			and put it in your website's root directory");
 }
 
